@@ -1,10 +1,24 @@
-require('dotenv').config({path: './config/.env'});
+const path = require('path'); // Add this line at the top
+
+require('dotenv').config({
+  path: path.join(__dirname, 'config', '.env')
+});
 const express = require('express');
 const mongoose = require('mongoose');
 const axios = require('axios');
 const cors = require('cors');
+const http = require('http');
+const { Server } = require('socket.io');
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
+
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/opinion_trading';
 const API_FOOTBALL_KEY = process.env.API_KEY || 'cbbaec8c72bd82555a08ca914eb8af05';
@@ -40,7 +54,7 @@ const fetchEvents = async () => {
         const events = response.data.response;
         
         for (let event of events) {
-            await Event.findOneAndUpdate(
+            const updatedEvent = await Event.findOneAndUpdate(
                 { eventId: event.fixture.id },
                 { 
                     name: event.teams.home.name + ' vs ' + event.teams.away.name,
@@ -51,6 +65,9 @@ const fetchEvents = async () => {
                 },
                 { upsert: true, new: true }
             );
+            
+            // Emit event update to clients
+            io.emit('eventUpdate', updatedEvent);
         }
         console.log('Events Updated');
     } catch (error) {
@@ -70,8 +87,16 @@ app.get('/events/:id', async (req, res) => {
     res.json(event);
 });
 
+// WebSocket Connection
+io.on('connection', (socket) => {
+    console.log('New client connected:', socket.id);
+    socket.on('disconnect', () => {
+        console.log('Client disconnected:', socket.id);
+    });
+});
+
 // Start the server
-app.listen(PORT, () => {
+server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     fetchEvents(); // Initial fetch
     setInterval(fetchEvents, 60000); // Fetch data every 1 minute
