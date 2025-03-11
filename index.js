@@ -1,14 +1,12 @@
-const path = require('path'); // Add this line at the top
-
-require('dotenv').config({
-  path: path.join(__dirname, 'config', '.env')
-});
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const axios = require('axios');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 
 const app = express();
 const server = http.createServer(app);
@@ -19,10 +17,13 @@ const io = new Server(server, {
     }
 });
 
-const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/opinion_trading';
-const API_FOOTBALL_KEY = process.env.API_KEY || 'cbbaec8c72bd82555a08ca914eb8af05';
-const API_FOOTBALL_URL = process.env.API_FOOTBALL_URL || 'https://v3.football.api-sports.io';
+
+const PORT = process.env.PORT ;
+const MONGO_URI = process.env.MONGO_URI ;
+const API_FOOTBALL_KEY = process.env.API_KEY ;
+const API_FOOTBALL_URL = process.env.API_URL ;
+const JWT_SECRET = process.env.JWT_SECRET ;
+
 
 // Middleware
 app.use(express.json());
@@ -32,6 +33,14 @@ app.use(cors());
 mongoose.connect(MONGO_URI)
     .then(() => console.log('MongoDB Connected'))
     .catch(err => console.error(err));
+
+// User Schema
+const UserSchema = new mongoose.Schema({
+    username: String,
+    password: String,
+    role: {type: String, enum: ['admin', 'user'], default: 'user'}
+})
+const User = mongoose.model('User', UserSchema);
 
 // Event Schema
 const EventSchema = new mongoose.Schema({
@@ -44,6 +53,53 @@ const EventSchema = new mongoose.Schema({
 });
 
 const Event = mongoose.model('Event', EventSchema);
+
+// Auth Middleware
+const authenticate = (req, res, next) => {
+    const token = req.header('Authorization');
+    if (!token) return res.status(401).json({message: 'Access denied'});
+    try {
+        const verified = jwt.verify(token.replace('Bearer ', ''), JWT_SECRET);
+        req.user = verified;
+        next();
+    } catch (err) {
+        res.status(400).json({message: 'Invalid token'});
+    }
+};
+
+const isAdmin = (req, res, next) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required'});
+    next();
+};
+
+// Auth Routes
+app.post('/register', async (req, res) => {
+    const { username, password, role } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new User({username, password: hashedPassword, role});
+    await user.save();
+    res.json({ message: 'User registered'});
+});
+
+
+app.post('/login', async (req, res) => {
+    const {username, password } = req.body;
+    const user = await User.findOne({ username});
+    if(!user || !(await bcrypt.compare(password, user.password))) {
+        return res.status(400).json({message: 'Invalid credentials'});
+    }
+    const token = jwt.sign({id: user._id, role: user.role}, JWT_SECRET, { expiresIn: '1h'});
+    console.log(`---${token}---${user.username}`);
+
+    res.json({ token });
+});
+
+//Admin Routes
+app.post('/admin/events', authenticate, isAdmin, async (req, res) => {
+    const event = new Event(req.body);
+    await event.save();
+    res.json({ message: 'Event created'}); 
+});
 
 // Fetch Events from API-Football
 const fetchEvents = async () => {
