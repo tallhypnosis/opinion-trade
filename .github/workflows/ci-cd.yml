@@ -1,0 +1,65 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install Backend Dependencies
+        run: |
+          cd backend
+          npm install
+
+      # - name: Run Backend Tests
+      #   run: |
+      #     cd backend
+      #     npm test # Run your backend tests (if available)
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd frontend
+          npm install
+
+      # - name: Run Frontend Tests
+      #   run: |
+      #     cd frontend
+      #     npm test # Run your frontend tests (if available)
+
+  # deploy-backend:
+  #   name: Deploy Backend to Render
+  #   needs: test
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Trigger Render Deployment
+  #       run: |
+  #         curl -X POST "$RENDER_DEPLOY_HOOK"
+  #       env:
+  #         RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+
+  deploy-frontend:
+    name: Deploy Frontend to Vercel
+    needs: deploy-backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Vercel CLI
+        run: npm install -g vercel
+
+      - name: Deploy to Vercel
+        run: vercel --prod --token ${{ secrets.VERCEL_TOKEN }}
